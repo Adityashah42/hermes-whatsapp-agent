@@ -15,7 +15,7 @@ echo "- Port: $PORT"
 echo "- Session Data Path: $DATA_DIR"
 echo "- Webhook URL: $WEBHOOK"
 
-# Check if wa-automate or npx is available
+# Execute OpenWA
 if command -v wa-automate >/dev/null 2>&1; then
     exec wa-automate \
         --port "$PORT" \
@@ -24,6 +24,8 @@ if command -v wa-automate >/dev/null 2>&1; then
         --session-data-path "$DATA_DIR" \
         --multi-device \
         --headless \
+        --executable-path /usr/bin/chromium \
+        --use-chrome \
         --config /app/config/wa.config.json
 else
     exec npx --yes @open-wa/wa-automate \
@@ -33,5 +35,7 @@ else
         --session-data-path "$DATA_DIR" \
         --multi-device \
         --headless \
+        --executable-path /usr/bin/chromium \
+        --use-chrome \
         --config /app/config/wa.config.json
 fi

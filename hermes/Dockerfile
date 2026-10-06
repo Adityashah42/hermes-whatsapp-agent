@@ -1,7 +1,7 @@
 # ==============================================================================
 # Hermes Agent + Antigravity CLI + WhatsApp Router Container
 # ==============================================================================
-FROM ghcr.io/nousresearch/hermes-agent:latest
+FROM nousresearch/hermes-agent:latest
 
 USER root
 
