@@ -1,7 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const qrcodeTerminal = require('qrcode-terminal');
-const { create } = require('@open-wa/wa-automate');
+const { Client, LocalAuth } = require('whatsapp-web.js');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
@@ -19,7 +19,6 @@ if (!fs.existsSync(DATA_DIR)) {
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 
-// API Key authentication middleware
 const authenticate = (req, res, next) => {
   const authHeader = req.headers['x-api-key'] || req.headers['authorization'];
   if (API_KEY && API_KEY !== 'default_secret_key') {
@@ -34,12 +33,11 @@ let waClient = null;
 let latestQr = null;
 let sessionStatus = 'INITIALIZING';
 
-// Endpoints
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     sessionStatus,
-    clientConnected: !!waClient,
+    clientConnected: sessionStatus === 'CONNECTED',
     timestamp: new Date().toISOString()
   });
 });
@@ -68,11 +66,12 @@ app.post('/api/sessions/default/messages/send-text', authenticate, async (req, r
     if (!chatId || !content) {
       return res.status(400).json({ error: 'Missing chatId or content in request body' });
     }
-    if (!waClient) {
+    if (!waClient || sessionStatus !== 'CONNECTED') {
       return res.status(503).json({ error: 'WhatsApp client is not connected' });
     }
     console.log(`[openwa] Sending message to ${chatId}: ${content.substring(0, 50)}...`);
-    const result = await waClient.sendText(chatId, content);
+    const formattedChatId = chatId.includes('@') ? chatId : `${chatId.replace('+', '')}@c.us`;
+    const result = await waClient.sendMessage(formattedChatId, content);
     res.json({ success: true, result });
   } catch (error) {
     console.error('[openwa] Error sending message:', error.message);
@@ -80,18 +79,29 @@ app.post('/api/sessions/default/messages/send-text', authenticate, async (req, r
   }
 });
 
-// Helper to forward incoming message to Hermes webhook
 async function forwardToHermes(message) {
   if (!WEBHOOK_URL) return;
   try {
-    const payload = JSON.stringify(message);
+    const payload = {
+      id: message.id ? (message.id._serialized || message.id.id) : String(Date.now()),
+      from: message.from,
+      to: message.to,
+      body: message.body,
+      type: message.type || 'chat',
+      timestamp: message.timestamp || Math.floor(Date.now() / 1000),
+      isGroupMsg: message.from ? message.from.includes('@g.us') : false,
+      sender: {
+        id: message.from,
+        pushname: message._data ? (message._data.notifyName || '') : ''
+      }
+    };
+    const bodyStr = JSON.stringify(payload);
     const headers = { 'Content-Type': 'application/json' };
     if (WEBHOOK_SECRET) {
-      const signature = crypto.createHmac('sha256', WEBHOOK_SECRET).update(payload).digest('hex');
-      headers['X-OpenWA-Signature'] = signature;
+      headers['X-OpenWA-Signature'] = crypto.createHmac('sha256', WEBHOOK_SECRET).update(bodyStr).digest('hex');
     }
-    console.log(`[openwa] Forwarding message from ${message.from} to ${WEBHOOK_URL}...`);
-    const response = await axios.post(WEBHOOK_URL, message, { headers, timeout: 60000 });
+    console.log(`[openwa] Forwarding message from ${payload.from} to ${WEBHOOK_URL}...`);
+    const response = await axios.post(WEBHOOK_URL, payload, { headers, timeout: 60000 });
     console.log(`[openwa] Hermes response status: ${response.status}`);
   } catch (error) {
     console.error(`[openwa] Failed to forward message to Hermes webhook: ${error.message}`);
@@ -99,72 +109,71 @@ async function forwardToHermes(message) {
 }
 
 async function initWhatsApp() {
-  console.log('=== Initializing WhatsApp Client via @open-wa/wa-automate ===');
+  console.log('=== Initializing WhatsApp Client (Engine: LocalAuth + Puppeteer) ===');
   console.log(`Session directory: ${DATA_DIR}`);
   console.log(`Webhook URL: ${WEBHOOK_URL}`);
 
   try {
-    const client = await create({
-      sessionId: 'default',
-      sessionDataPath: DATA_DIR,
-      multiDevice: true,
-      headless: false,
-      useChrome: true,
-      executablePath: '/usr/bin/google-chrome-stable',
-      customUserAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-      qrTimeout: 0,
-      authTimeout: 0,
-      cacheEnabled: false,
-      restartOnCrash: true,
-      disableSpins: true,
-      bypassCSP: true,
-      qrRefreshS: 20,
-      catchQR: (qrCode, asciiQR, attempts, urlCode) => {
-        latestQr = qrCode;
-        sessionStatus = 'QR_READY';
-        console.log('\n========================================================');
-        console.log('SCAN THIS QR CODE IN WHATSAPP (Settings > Linked Devices):');
-        console.log('========================================================\n');
-        if (asciiQR) {
-          console.log(asciiQR);
-        } else {
-          qrcodeTerminal.generate(qrCode, { small: true }, qrcode => {
-            console.log(qrcode);
-          });
-        }
-        console.log(`\nQR Code attempt #${attempts}. Waiting for phone scan...\n`);
-      },
-      statusFind: (statusSession, session) => {
-        console.log(`[openwa] Session status changed: ${statusSession}`);
-        if (statusSession === 'isLogged' || statusSession === 'chatsAvailable') {
-          sessionStatus = 'CONNECTED';
-          latestQr = null;
-        } else if (statusSession === 'notLogged') {
-          sessionStatus = 'DISCONNECTED';
-        }
+    const client = new Client({
+      authStrategy: new LocalAuth({
+        dataPath: DATA_DIR,
+        clientId: 'default'
+      }),
+      puppeteer: {
+        headless: true,
+        executablePath: '/usr/bin/google-chrome-stable',
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--no-first-run'
+        ]
       }
     });
 
-    waClient = client;
-    sessionStatus = 'CONNECTED';
-    console.log('✓ WhatsApp Client Connected and Ready!');
+    client.on('qr', qr => {
+      latestQr = qr;
+      sessionStatus = 'QR_READY';
+      console.log('\n========================================================');
+      console.log('SCAN THIS QR CODE IN WHATSAPP (Settings > Linked Devices):');
+      console.log('========================================================\n');
+      qrcodeTerminal.generate(qr, { small: true });
+      console.log('\nWaiting for phone scan...\n');
+    });
 
-    client.onMessage(async message => {
-      // Ignore broadcast messages or status updates
-      if (message.isGroupMsg || message.from === 'status@broadcast') {
+    client.on('ready', () => {
+      waClient = client;
+      sessionStatus = 'CONNECTED';
+      latestQr = null;
+      console.log('✓ WhatsApp Client Connected and Ready!');
+    });
+
+    client.on('authenticated', () => {
+      console.log('✓ WhatsApp Client Authenticated successfully!');
+      sessionStatus = 'AUTHENTICATED';
+    });
+
+    client.on('auth_failure', msg => {
+      console.error('[openwa] WhatsApp authentication failure:', msg);
+      sessionStatus = 'AUTH_FAILURE';
+    });
+
+    client.on('disconnected', reason => {
+      console.log('[openwa] WhatsApp client disconnected:', reason);
+      sessionStatus = 'DISCONNECTED';
+      setTimeout(() => client.initialize(), 5000);
+    });
+
+    client.on('message', async msg => {
+      if (msg.from && (msg.from.includes('@g.us') || msg.from === 'status@broadcast')) {
         return;
       }
-      console.log(`[openwa] Received incoming message from ${message.from}: ${message.body || '[media]'}`);
-      await forwardToHermes(message);
+      console.log(`[openwa] Received incoming message from ${msg.from}: ${msg.body || '[media]'}`);
+      await forwardToHermes(msg);
     });
 
-    client.onStateChanged(state => {
-      console.log(`[openwa] WhatsApp connection state: ${state}`);
-      if (state === 'CONFLICT' || state === 'UNLAUNCHED') {
-        client.forceRefocus();
-      }
-    });
-
+    await client.initialize();
   } catch (error) {
     console.error('[openwa] WhatsApp client initialization error:', error);
     sessionStatus = 'ERROR';
