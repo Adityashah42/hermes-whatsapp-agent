@@ -42,6 +42,58 @@ app.get('/health', (req, res) => {
   });
 });
 
+app.get(['/', '/qr'], (req, res) => {
+  if (sessionStatus === 'CONNECTED') {
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+        <head><title>WhatsApp Status</title><style>body { font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #111; color: #4ade80; text-align: center; }</style></head>
+        <body><div><h1>✓ WhatsApp Connected!</h1><p style="color: #bbb;">Your session is authenticated and persisting on volume.</p></div></body>
+      </html>
+    `);
+  }
+  if (!latestQr) {
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+        <head><title>Generating QR...</title><meta http-equiv="refresh" content="3"><style>body { font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #111; color: #fff; text-align: center; }</style></head>
+        <body><div><h2>Generating WhatsApp QR Code...</h2><p style="color: #888;">Refreshing automatically in 3 seconds...</p></div></body>
+      </html>
+    `);
+  }
+  const qrImg = `https://api.qrserver.com/v1/create-qr-code/?size=350x350&margin=15&data=${encodeURIComponent(latestQr)}`;
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Scan WhatsApp QR Code</title>
+        <meta http-equiv="refresh" content="20">
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #0f172a; color: #f8fafc; }
+          .card { background: #1e293b; padding: 40px; border-radius: 16px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
+          h1 { margin-top: 0; font-size: 24px; color: #38bdf8; }
+          p { color: #94a3b8; font-size: 15px; margin: 8px 0; }
+          .qr-box { background: white; padding: 16px; border-radius: 12px; display: inline-block; margin: 20px 0; }
+          img { display: block; width: 320px; height: 320px; }
+          .badge { background: #0284c7; color: white; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; display: inline-block; margin-bottom: 15px; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <div class="badge">WHATSAPP WEB PAIRING</div>
+          <h1>Scan with your Phone</h1>
+          <p>1. Open WhatsApp on your phone</p>
+          <p>2. Tap <b>Settings &rarr; Linked Devices &rarr; Link a Device</b></p>
+          <div class="qr-box">
+            <img src="${qrImg}" alt="WhatsApp QR Code" />
+          </div>
+          <p style="font-size: 13px; color: #64748b;">This page auto-refreshes every 20 seconds</p>
+        </div>
+      </body>
+    </html>
+  `);
+});
+
 app.get('/api/sessions/default/status', authenticate, (req, res) => {
   res.json({
     sessionId: 'default',
