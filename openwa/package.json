@@ -1,0 +1,15 @@
+{
+  "name": "openwa-whatsapp-service",
+  "version": "1.0.0",
+  "description": "OpenWA WhatsApp Service for Hermes Integration",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@open-wa/wa-automate": "^4.76.0",
+    "axios": "^1.7.9",
+    "express": "^4.21.2",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

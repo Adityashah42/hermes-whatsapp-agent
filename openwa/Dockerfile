@@ -21,11 +21,13 @@ ENV PUPPETEER_ARGS="--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usag
 
 WORKDIR /app
 
-# Install @open-wa/wa-automate globally
-RUN npm install -g @open-wa/wa-automate
+# Install dependencies
+COPY openwa/package.json /app/package.json
+RUN npm install --omit=dev
 
 RUN mkdir -p /app/data /app/config
 
+COPY openwa/server.js /app/server.js
 COPY openwa/config/wa.config.json /app/config/wa.config.json
 COPY openwa/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
