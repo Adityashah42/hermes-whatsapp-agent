@@ -5,13 +5,14 @@ FROM nousresearch/hermes-agent:latest
 
 USER root
 
-# Install system dependencies needed for agy CLI and networking
+# Install system dependencies needed for agy CLI, Python pip, and networking
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     git \
     procps \
     sqlite3 \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
 # Install official Antigravity CLI (agy)
@@ -26,7 +27,8 @@ RUN mkdir -p /opt/hermes/integration /opt/hermes/skills/antigravity-cli /opt/dat
 
 # Copy Integration router and dependencies
 COPY integration/requirements.txt /opt/hermes/integration/requirements.txt
-RUN pip install --no-cache-dir -r /opt/hermes/integration/requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r /opt/hermes/integration/requirements.txt || \
+    pip install --no-cache-dir -r /opt/hermes/integration/requirements.txt
 
 COPY integration/ /opt/hermes/integration/
 COPY hermes/skills/antigravity-cli/ /opt/hermes/skills/antigravity-cli/
@@ -39,6 +41,7 @@ ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
 ENV HERMES_API_PORT=8642
 ENV HERMES_DATA_PATH=/opt/data
+ENV PATH="/usr/local/bin:/root/.local/bin:${PATH}"
 
 # Ports: 8080 (Integration Router & Health check), 8642 (Hermes API Server)
 EXPOSE 8080 8642
