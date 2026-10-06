@@ -16,5 +16,4 @@ export PUPPETEER_ARGS="--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-u
 export CHROME_BIN=/usr/bin/google-chrome-stable
 export PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 export WA_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
-
-exec node /app/server.js
+exec xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24 -ac -nolisten tcp -dpi 96 +extension RANDR" node /app/server.js
