@@ -9,5 +9,13 @@
   "killProcessOnBrowserClose": false,
   "restartOnCrash": true,
   "cacheEnabled": true,
-  "bypassCSP": true
+  "bypassCSP": true,
+  "chromiumArgs": [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--no-first-run",
+    "--no-zygote"
+  ]
 }

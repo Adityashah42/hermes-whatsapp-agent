@@ -17,6 +17,7 @@ ENV CHROME_BIN=/usr/bin/chromium
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV WA_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_ARGS="--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-gpu"
 
 WORKDIR /app
 

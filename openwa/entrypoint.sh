@@ -15,6 +15,11 @@ echo "- Port: $PORT"
 echo "- Session Data Path: $DATA_DIR"
 echo "- Webhook URL: $WEBHOOK"
 
+export PUPPETEER_ARGS="--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-gpu"
+export CHROME_BIN=/usr/bin/chromium
+export PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+export WA_EXECUTABLE_PATH=/usr/bin/chromium
+
 # Execute OpenWA
 if command -v wa-automate >/dev/null 2>&1; then
     exec wa-automate \
