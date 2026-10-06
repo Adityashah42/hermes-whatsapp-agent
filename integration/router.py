@@ -93,7 +93,9 @@ async def send_to_openwa(chat_id: str, text: str, max_retries: int = 3) -> bool:
 
     payload = {
         "chatId": chat_id,
+        "content": text,
         "text": text,
+        "message": text,
     }
 
     # OpenWA endpoints: modern EasyAPI uses /api/sessions/default/messages/send-text or /api/sendText
@@ -228,8 +230,15 @@ async def handle_whatsapp_webhook(request: web.Request) -> web.Response:
     # 1. Verify Webhook Secret if configured
     if WEBHOOK_SECRET:
         token = request.headers.get("X-Webhook-Secret") or request.query.get("secret")
-        if not verify_webhook_secret(token, WEBHOOK_SECRET):
-            logger.warning("Rejected webhook: invalid or missing webhook secret.")
+        # In a Railway private network, also allow if header matches or internal IP
+        remote_host = request.remote or ""
+        is_internal = "127.0.0.1" in remote_host or "10." in remote_host or "::1" in remote_host
+        if token:
+            if not verify_webhook_secret(token, WEBHOOK_SECRET):
+                logger.warning("Rejected webhook: invalid webhook secret.")
+                return web.json_response({"error": "unauthorized"}, status=401)
+        elif not is_internal:
+            logger.warning("Rejected webhook: missing webhook secret from external host %s", remote_host)
             return web.json_response({"error": "unauthorized"}, status=401)
 
     # 2. Parse incoming JSON
@@ -274,20 +283,28 @@ async def handle_whatsapp_webhook(request: web.Request) -> web.Response:
             return web.json_response({"status": "duplicate_ignored"}, status=200)
 
     sender_phone = normalize_phone_number(sender_jid)
+    contact_phone = normalize_phone_number(sender_obj.get("number") or sender_obj.get("phone") or "")
     masked_phone = mask_phone_number(sender_phone)
-    logger.info("Incoming WhatsApp message from %s (msg_id: %s)", masked_phone, message_id)
+    masked_contact = mask_phone_number(contact_phone)
+    logger.info("Incoming WhatsApp message from %s (contact: %s, msg_id: %s)", masked_phone, masked_contact, message_id)
 
-    # 6. Access Control: Check Sender Allowlist
-    if not is_sender_authorized(sender_phone, ALLOWED_NUMBERS):
+    # 6. Access Control: Check Sender Allowlist (dynamically reload from env if needed)
+    current_allowed = parse_allowed_numbers(os.getenv("ALLOWED_WHATSAPP_NUMBERS", ALLOWED_WHATSAPP_NUMBERS_RAW))
+    is_authorized = is_sender_authorized(sender_phone, current_allowed) or (
+        bool(contact_phone) and is_sender_authorized(contact_phone, current_allowed)
+    )
+
+    if not is_authorized:
         logger.warning(
-            "Access denied: Sender %s is NOT in the allowed numbers list.", masked_phone
+            "Access denied: Sender %s (contact: %s) is NOT in allowed list.", masked_phone, masked_contact
         )
         if UNAUTHORIZED_RESPONSE and UNAUTHORIZED_RESPONSE.lower() != "ignore":
             asyncio.create_task(send_to_openwa(from_jid, UNAUTHORIZED_RESPONSE))
         return web.json_response({"status": "unauthorized_sender"}, status=200)
 
     # 7. Asynchronously process message through Hermes and send response back
-    session_key = f"whatsapp:{sender_phone}"
+    session_id_num = contact_phone if contact_phone else sender_phone
+    session_key = f"whatsapp:{session_id_num}"
     asyncio.create_task(process_message_flow(from_jid, body, session_key, message_id))
 
     # Respond immediately with 200 OK to OpenWA webhook to prevent webhook timeout

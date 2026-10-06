@@ -112,11 +112,12 @@ app.get('/api/sessions/default/qr', authenticate, (req, res) => {
   res.json({ status: 'qr_ready', qr: latestQr });
 });
 
-app.post('/api/sessions/default/messages/send-text', authenticate, async (req, res) => {
+const handleSendText = async (req, res) => {
   try {
-    const { chatId, content } = req.body;
+    const chatId = req.body.chatId || req.body.to;
+    const content = req.body.content || req.body.text || req.body.message;
     if (!chatId || !content) {
-      return res.status(400).json({ error: 'Missing chatId or content in request body' });
+      return res.status(400).json({ error: 'Missing chatId or content/text in request body' });
     }
     if (!waClient || sessionStatus !== 'CONNECTED') {
       return res.status(503).json({ error: 'WhatsApp client is not connected' });
@@ -129,11 +130,25 @@ app.post('/api/sessions/default/messages/send-text', authenticate, async (req, r
     console.error('[openwa] Error sending message:', error.message);
     res.status(500).json({ error: error.message });
   }
-});
+};
+
+app.post('/api/sessions/default/messages/send-text', authenticate, handleSendText);
+app.post('/api/sendText', authenticate, handleSendText);
+app.post('/sendText', authenticate, handleSendText);
 
 async function forwardToHermes(message) {
   if (!WEBHOOK_URL) return;
   try {
+    let contactNumber = '';
+    try {
+      const contact = await message.getContact();
+      if (contact && contact.number) {
+        contactNumber = contact.number;
+      }
+    } catch (e) {
+      // ignore
+    }
+
     const payload = {
       id: message.id ? (message.id._serialized || message.id.id) : String(Date.now()),
       from: message.from,
@@ -144,15 +159,18 @@ async function forwardToHermes(message) {
       isGroupMsg: message.from ? message.from.includes('@g.us') : false,
       sender: {
         id: message.from,
+        number: contactNumber,
+        phone: contactNumber,
         pushname: message._data ? (message._data.notifyName || '') : ''
       }
     };
     const bodyStr = JSON.stringify(payload);
     const headers = { 'Content-Type': 'application/json' };
     if (WEBHOOK_SECRET) {
+      headers['X-Webhook-Secret'] = WEBHOOK_SECRET;
       headers['X-OpenWA-Signature'] = crypto.createHmac('sha256', WEBHOOK_SECRET).update(bodyStr).digest('hex');
     }
-    console.log(`[openwa] Forwarding message from ${payload.from} to ${WEBHOOK_URL}...`);
+    console.log(`[openwa] Forwarding message from ${payload.from} (phone: ${contactNumber}) to ${WEBHOOK_URL}...`);
     const response = await axios.post(WEBHOOK_URL, payload, { headers, timeout: 60000 });
     console.log(`[openwa] Hermes response status: ${response.status}`);
   } catch (error) {
