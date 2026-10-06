@@ -117,6 +117,7 @@ async function initWhatsApp() {
       cacheEnabled: false,
       restartOnCrash: true,
       disableSpins: true,
+      bypassCSP: true,
       qrRefreshS: 20,
       catchQR: (qrCode, asciiQR, attempts, urlCode) => {
         latestQr = qrCode;

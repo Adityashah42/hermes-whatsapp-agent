@@ -34,7 +34,8 @@ WORKDIR /app
 
 # Install dependencies
 COPY openwa/package.json /app/package.json
-RUN npm install --omit=dev
+RUN npm install --omit=dev && \
+    sed -i 's/30000/180000/g' /app/node_modules/@open-wa/wa-automate/dist/controllers/initializer.js || true
 
 RUN mkdir -p /app/data /app/config
 
