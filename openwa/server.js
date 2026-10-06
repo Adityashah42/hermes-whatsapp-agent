@@ -139,19 +139,20 @@ app.post('/sendText', authenticate, handleSendText);
 const handleSendTyping = async (req, res) => {
   try {
     const chatId = req.body.chatId || req.body.to;
-    if (!chatId) return res.status(400).json({ error: 'Missing chatId' });
+    if (!chatId) return res.json({ success: false });
     if (!waClient || sessionStatus !== 'CONNECTED') {
-      return res.status(503).json({ error: 'WhatsApp client is not connected' });
+      return res.json({ success: false });
     }
     const formattedChatId = chatId.includes('@') ? chatId : `${chatId.replace('+', '')}@c.us`;
-    const chat = await waClient.getChatById(formattedChatId);
-    if (chat && typeof chat.sendStateTyping === 'function') {
-      await chat.sendStateTyping();
+    if (typeof waClient.getChatById === 'function') {
+      const chat = await waClient.getChatById(formattedChatId).catch(() => null);
+      if (chat && typeof chat.sendStateTyping === 'function') {
+        await chat.sendStateTyping().catch(() => {});
+      }
     }
     res.json({ success: true });
   } catch (err) {
-    console.warn('[openwa] Error in sendTyping:', err.message);
-    res.status(500).json({ error: err.message });
+    res.json({ success: false });
   }
 };
 
@@ -264,12 +265,14 @@ async function initWhatsApp() {
       }
       console.log(`[openwa] Received incoming message from ${msg.from}: ${msg.body || '[media]'}`);
       try {
-        const chat = await msg.getChat();
-        if (chat && typeof chat.sendStateTyping === 'function') {
-          await chat.sendStateTyping();
+        if (typeof msg.getChat === 'function') {
+          const chat = await msg.getChat().catch(() => null);
+          if (chat && typeof chat.sendStateTyping === 'function') {
+            await chat.sendStateTyping().catch(() => {});
+          }
         }
       } catch (err) {
-        console.warn('[openwa] Could not set typing state on receive:', err.message);
+        // safely ignore typing errors
       }
       await forwardToHermes(msg);
     });

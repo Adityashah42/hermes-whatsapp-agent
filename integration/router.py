@@ -188,7 +188,13 @@ class PersistentAgyWorker:
         self.model = model or os.getenv("AGY_MODEL", "gemini-3.8-flash-low")
         self.cwd = cwd
         self.process: Optional[asyncio.subprocess.Process] = None
-        self.lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None
+
+    @property
+    def lock(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     async def ensure_started(self) -> bool:
         if self.process is not None and self.process.returncode is None:
@@ -560,8 +566,7 @@ async def init_app() -> web.Application:
 
 def main():
     logger.info("Starting Hermes-OpenWA Integration Router on port %d...", PORT)
-    app = asyncio.run(init_app())
-    web.run_app(app, host="0.0.0.0", port=PORT)
+    web.run_app(init_app(), host="0.0.0.0", port=PORT)
 
 
 if __name__ == "__main__":
