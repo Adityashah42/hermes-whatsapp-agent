@@ -1,0 +1,13 @@
+{
+  "sessionId": "default",
+  "multiDevice": true,
+  "headless": true,
+  "useChrome": true,
+  "qrTimeout": 0,
+  "authTimeout": 0,
+  "autoRefresh": true,
+  "killProcessOnBrowserClose": false,
+  "restartOnCrash": true,
+  "cacheEnabled": true,
+  "bypassCSP": true
+}

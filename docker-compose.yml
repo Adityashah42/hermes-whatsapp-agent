@@ -1,0 +1,47 @@
+services:
+  hermes:
+    build:
+      context: .
+      dockerfile: hermes/Dockerfile
+    container_name: hermes-agent-service
+    restart: unless-stopped
+    environment:
+      - PORT=8080
+      - HERMES_API_PORT=8642
+      - HERMES_API_KEY=${HERMES_API_KEY:-dev_secret_hermes_key_32_characters}
+      - OPENWA_API_KEY=${OPENWA_API_KEY:-dev_secret_openwa_key_32_characters}
+      - OPENWA_BASE_URL=http://openwa:2785
+      - HERMES_BASE_URL=http://127.0.0.1:8642
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      - ALLOWED_WHATSAPP_NUMBERS=${ALLOWED_WHATSAPP_NUMBERS:-}
+      - UNAUTHORIZED_RESPONSE=${UNAUTHORIZED_RESPONSE:-Access denied. This is a private personal AI agent.}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - HERMES_DATA_PATH=/opt/data
+    volumes:
+      - hermes_data:/opt/data
+    ports:
+      - "8080:8080"
+    depends_on:
+      - openwa
+
+  openwa:
+    build:
+      context: .
+      dockerfile: openwa/Dockerfile
+    container_name: openwa-whatsapp-service
+    restart: unless-stopped
+    environment:
+      - OPENWA_PORT=2785
+      - OPENWA_API_KEY=${OPENWA_API_KEY:-dev_secret_openwa_key_32_characters}
+      - OPENWA_WEBHOOK_URL=http://hermes:8080/webhook/whatsapp
+      - OPENWA_DATA_PATH=/app/data
+    volumes:
+      - openwa_data:/app/data
+    ports:
+      - "2785:2785"
+
+volumes:
+  hermes_data:
+    name: hermes_persistent_data
+  openwa_data:
+    name: openwa_persistent_data
