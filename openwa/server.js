@@ -115,13 +115,7 @@ async function initWhatsApp() {
       authTimeout: 0,
       cacheEnabled: false,
       restartOnCrash: true,
-      chromiumArgs: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-first-run'
-      ],
+      disableSpins: true,
       qrRefreshS: 20,
       catchQR: (qrCode, asciiQR, attempts, urlCode) => {
         latestQr = qrCode;
