@@ -143,8 +143,49 @@ async def send_to_openwa(chat_id: str, text: str, max_retries: int = 3) -> bool:
     return False
 
 
+async def query_agy_cli(user_message: str, session_key: str) -> Optional[str]:
+    """Execute turn using Google Antigravity Pro CLI (agy)."""
+    agy_path = "/usr/local/bin/agy"
+    if not os.path.exists(agy_path):
+        agy_path = "agy"
+
+    cmd = [
+        agy_path,
+        "-p", user_message,
+        "--dangerously-skip-permissions",
+    ]
+
+    logger.info("Dispatching turn to Antigravity Pro CLI (agy) for session %s...", session_key)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd="/opt/data"
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=180.0)
+        output = stdout.decode("utf-8", errors="replace").strip()
+        if output:
+            return output
+        err = stderr.decode("utf-8", errors="replace").strip()
+        logger.warning("agy exited with returncode %d, stderr: %s", proc.returncode, err)
+        return None
+    except asyncio.TimeoutError:
+        logger.error("Antigravity CLI timed out after 180s")
+        return "I apologize, but processing your request took longer than expected. Please try again."
+    except Exception as e:
+        logger.error("Exception invoking Antigravity CLI: %s", e)
+        return None
+
+
 async def query_hermes_agent(user_message: str, session_key: str) -> Optional[str]:
-    """Query Hermes Agent via its OpenAI-compatible completions API with session tracking."""
+    """Query reasoning engine (Antigravity Pro agy CLI primary, Hermes API fallback)."""
+    agy_info = await check_agy_cli()
+    if agy_info.get("installed"):
+        result = await query_agy_cli(user_message, session_key)
+        if result:
+            return result
+
     url = f"{HERMES_BASE_URL}/v1/chat/completions"
     headers = {
         "Content-Type": "application/json",
