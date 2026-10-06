@@ -13,8 +13,8 @@ if [ ! -f "$DATA_DIR/default.data.json" ]; then
 fi
 
 export PUPPETEER_ARGS="--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-gpu"
-export CHROME_BIN=/usr/bin/chromium
-export PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-export WA_EXECUTABLE_PATH=/usr/bin/chromium
+export CHROME_BIN=/usr/bin/google-chrome-stable
+export PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+export WA_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 
 exec node /app/server.js

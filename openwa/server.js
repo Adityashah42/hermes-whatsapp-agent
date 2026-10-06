@@ -110,7 +110,7 @@ async function initWhatsApp() {
       multiDevice: true,
       headless: true,
       useChrome: true,
-      executablePath: '/usr/bin/chromium',
+      executablePath: '/usr/bin/google-chrome-stable',
       qrTimeout: 0,
       authTimeout: 0,
       cacheEnabled: false,
