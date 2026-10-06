@@ -143,19 +143,60 @@ async def send_to_openwa(chat_id: str, text: str, max_retries: int = 3) -> bool:
     return False
 
 
+async def send_typing_to_openwa(chat_id: str) -> None:
+    """Send typing indicator presence to OpenWA."""
+    if not chat_id:
+        return
+    headers = {"Content-Type": "application/json"}
+    if OPENWA_API_KEY:
+        headers["X-API-Key"] = OPENWA_API_KEY
+        headers["Authorization"] = f"Bearer {OPENWA_API_KEY}"
+
+    payload = {"chatId": chat_id}
+    endpoints = [
+        f"{OPENWA_BASE_URL}/api/sessions/default/messages/send-typing",
+        f"{OPENWA_BASE_URL}/api/sendTyping",
+        f"{OPENWA_BASE_URL}/sendTyping",
+    ]
+    timeout = ClientTimeout(total=4)
+    try:
+        async with ClientSession(timeout=timeout) as session:
+            for ep in endpoints:
+                try:
+                    async with session.post(ep, json=payload, headers=headers) as resp:
+                        if resp.status in (200, 201):
+                            return
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+
+async def keep_typing(chat_id: str, stop_event: asyncio.Event) -> None:
+    """Continuously refresh typing indicator in WhatsApp until processing finishes."""
+    while not stop_event.is_set():
+        await send_typing_to_openwa(chat_id)
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=4.0)
+        except asyncio.TimeoutError:
+            pass
+
+
 async def query_agy_cli(user_message: str, session_key: str) -> Optional[str]:
     """Execute turn using Google Antigravity Pro CLI (agy)."""
     agy_path = "/usr/local/bin/agy"
     if not os.path.exists(agy_path):
         agy_path = "agy"
 
+    model = os.getenv("AGY_MODEL", "gemini-3.8-flash-low")
     cmd = [
         agy_path,
         "-p", user_message,
+        "--model", model,
         "--dangerously-skip-permissions",
     ]
 
-    logger.info("Dispatching turn to Antigravity Pro CLI (agy) for session %s...", session_key)
+    logger.info("Dispatching turn to Antigravity CLI (model: %s, session: %s)...", model, session_key)
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -354,6 +395,8 @@ async def handle_whatsapp_webhook(request: web.Request) -> web.Response:
 
 async def process_message_flow(chat_id: str, prompt: str, session_key: str, message_id: str) -> None:
     """Full asynchronous turnaround: Hermes reasoning -> OpenWA delivery."""
+    stop_typing = asyncio.Event()
+    typing_task = asyncio.create_task(keep_typing(chat_id, stop_typing))
     try:
         reply = await query_hermes_agent(prompt, session_key)
         if not reply:
@@ -367,6 +410,9 @@ async def process_message_flow(chat_id: str, prompt: str, session_key: str, mess
             logger.error("Failed to deliver reply for message %s to chat %s", message_id, mask_phone_number(chat_id))
     except Exception as e:
         logger.error("Exception in process_message_flow: %s", e, exc_info=True)
+    finally:
+        stop_typing.set()
+        await typing_task
 
 
 async def periodic_cleanup_task() -> None:
