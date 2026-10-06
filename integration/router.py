@@ -182,12 +182,107 @@ async def keep_typing(chat_id: str, stop_event: asyncio.Event) -> None:
             pass
 
 
-async def query_agy_cli(user_message: str, session_key: str) -> Optional[str]:
-    """Execute turn using Google Antigravity Pro CLI (agy)."""
-    agy_path = "/usr/local/bin/agy"
-    if not os.path.exists(agy_path):
-        agy_path = "agy"
+class PersistentAgyWorker:
+    """Maintains a warm background agy CLI daemon in memory to eliminate cold starts."""
+    def __init__(self, model: Optional[str] = None, cwd: str = "/opt/data"):
+        self.model = model or os.getenv("AGY_MODEL", "gemini-3.8-flash-low")
+        self.cwd = cwd
+        self.process: Optional[asyncio.subprocess.Process] = None
+        self.lock = asyncio.Lock()
 
+    async def ensure_started(self) -> bool:
+        if self.process is not None and self.process.returncode is None:
+            return True
+
+        agy_path = "/usr/local/bin/agy" if os.path.exists("/usr/local/bin/agy") else "agy"
+        cmd = [
+            agy_path,
+            "--input-format=stream-json",
+            "--output-format=stream-json",
+            "--dangerously-skip-permissions",
+            f"--model={self.model}",
+            "-p=",
+        ]
+        try:
+            logger.info("Spawning persistent Antigravity warm worker (model: %s)...", self.model)
+            self.process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=self.cwd,
+            )
+            # Consume the init event line
+            init_line = await asyncio.wait_for(self.process.stdout.readline(), timeout=15.0)
+            logger.info("Persistent worker initialized successfully.")
+            return True
+        except Exception as e:
+            logger.error("Failed to start persistent worker: %s", e)
+            self.process = None
+            return False
+
+    async def query(self, prompt: str, timeout_seconds: float = 120.0) -> Optional[str]:
+        async with self.lock:
+            started = await self.ensure_started()
+            if not started or not self.process:
+                return None
+
+            payload = json.dumps({"event": "user", "message": {"content": prompt}}) + "\n"
+            try:
+                self.process.stdin.write(payload.encode("utf-8"))
+                await self.process.stdin.drain()
+
+                start_time = asyncio.get_event_loop().time()
+                while True:
+                    elapsed = asyncio.get_event_loop().time() - start_time
+                    remaining = timeout_seconds - elapsed
+                    if remaining <= 0:
+                        raise asyncio.TimeoutError()
+
+                    line = await asyncio.wait_for(self.process.stdout.readline(), timeout=remaining)
+                    if not line:
+                        break
+                    line_str = line.decode("utf-8", errors="replace").strip()
+                    if not line_str:
+                        continue
+                    try:
+                        data = json.loads(line_str)
+                        if data.get("event") == "result":
+                            result_data = data.get("result", {})
+                            if result_data.get("status") == "SUCCESS":
+                                return result_data.get("response", "").strip()
+                            else:
+                                err = result_data.get("error") or "Unknown error"
+                                logger.error("Persistent worker turn error: %s", err)
+                                return None
+                    except json.JSONDecodeError:
+                        continue
+                return None
+            except Exception as e:
+                logger.error("Exception during persistent worker turn: %s", e)
+                try:
+                    self.process.terminate()
+                except Exception:
+                    pass
+                self.process = None
+                return None
+
+    async def shutdown(self):
+        if self.process:
+            try:
+                self.process.terminate()
+                await self.process.wait()
+            except Exception:
+                pass
+            self.process = None
+
+
+warm_worker = PersistentAgyWorker()
+
+
+async def query_agy_cli_oneshot(user_message: str, session_key: str) -> Optional[str]:
+    """Fallback turn using cold one-shot agy process."""
+    agy_path = "/usr/local/bin/agy" if os.path.exists("/usr/local/bin/agy") else "agy"
     model = os.getenv("AGY_MODEL", "gemini-3.8-flash-low")
     cmd = [
         agy_path,
@@ -196,7 +291,7 @@ async def query_agy_cli(user_message: str, session_key: str) -> Optional[str]:
         "--dangerously-skip-permissions",
     ]
 
-    logger.info("Dispatching turn to Antigravity CLI (model: %s, session: %s)...", model, session_key)
+    logger.info("Dispatching fallback one-shot turn (model: %s, session: %s)...", model, session_key)
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -211,12 +306,21 @@ async def query_agy_cli(user_message: str, session_key: str) -> Optional[str]:
         err = stderr.decode("utf-8", errors="replace").strip()
         logger.warning("agy exited with returncode %d, stderr: %s", proc.returncode, err)
         return None
-    except asyncio.TimeoutError:
-        logger.error("Antigravity CLI timed out after 180s")
-        return "I apologize, but processing your request took longer than expected. Please try again."
     except Exception as e:
-        logger.error("Exception invoking Antigravity CLI: %s", e)
+        logger.error("Exception invoking one-shot agy CLI: %s", e)
         return None
+
+
+async def query_agy_cli(user_message: str, session_key: str) -> Optional[str]:
+    """Execute turn using Google Antigravity Pro CLI (agy), trying warm worker first."""
+    # 1. Fast path: Warm Daemon Worker (zero cold start!)
+    result = await warm_worker.query(user_message)
+    if result:
+        return result
+
+    # 2. Fallback path: One-shot process if worker had an issue
+    logger.info("Warm worker unavailable or failed, falling back to one-shot agy process...")
+    return await query_agy_cli_oneshot(user_message, session_key)
 
 
 async def query_hermes_agent(user_message: str, session_key: str) -> Optional[str]:
@@ -431,6 +535,9 @@ async def init_app() -> web.Application:
     """Build and configure the aiohttp application."""
     await idempotency_store.initialize()
 
+    # Pre-warm Antigravity daemon worker in background to eliminate cold start
+    asyncio.create_task(warm_worker.ensure_started())
+
     app = web.Application()
     app.router.add_get("/health", handle_health)
     app.router.add_post("/webhook/whatsapp", handle_whatsapp_webhook)
@@ -445,6 +552,7 @@ async def init_app() -> web.Application:
             await cleanup_task
         except asyncio.CancelledError:
             pass
+        await warm_worker.shutdown()
 
     app.on_cleanup.append(on_cleanup)
     return app
