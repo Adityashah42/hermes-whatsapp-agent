@@ -111,7 +111,7 @@ async function initWhatsApp() {
       headless: false,
       useChrome: true,
       executablePath: '/usr/bin/google-chrome-stable',
-      customUserAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+      customUserAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
       qrTimeout: 0,
       authTimeout: 0,
       cacheEnabled: false,

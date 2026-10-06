@@ -35,7 +35,8 @@ WORKDIR /app
 # Install dependencies
 COPY openwa/package.json /app/package.json
 RUN npm install --omit=dev && \
-    sed -i 's/30000/180000/g' /app/node_modules/@open-wa/wa-automate/dist/controllers/initializer.js || true
+    find /app/node_modules/puppeteer-core -name "Page.js" -exec sed -i 's/30000/180000/g' {} + || true && \
+    find /app/node_modules/puppeteer-core -name "WaitTask.js" -exec sed -i 's/30000/180000/g' {} + || true
 
 RUN mkdir -p /app/data /app/config
 
