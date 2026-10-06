@@ -395,8 +395,10 @@ async def init_app() -> web.Application:
 
     async def on_cleanup(app_instance):
         cleanup_task.cancel()
-        with asyncio.CancelledError():
+        try:
             await cleanup_task
+        except asyncio.CancelledError:
+            pass
 
     app.on_cleanup.append(on_cleanup)
     return app
